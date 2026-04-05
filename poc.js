@@ -127,96 +127,92 @@ function physicalSize(item) {
 // "modules" that each declare lifecycle hooks. XR8 calls these hooks
 // on every frame in registration order.
 //
-// The hooks we use:
-//   name()           — identifies this module in 8th Wall's debug output
-//   onStart()        — called once after XR8 initialises; we build the
-//                      Three.js scene here and start loading the texture
-//   onUpdate()       — called every frame with camera pose + surface data;
-//                      we use it to handle tap-to-place
-//   onException()    — called if 8th Wall throws internally; we surface
-//                      the error to the user
+// Surface detection strategy:
+//   Rather than waiting for a specific SLAM tracking status (which varies
+//   across engine versions), we use a two-path approach:
+//     1. onUpdate watches for any SLAM tracking signal (LIMITED or NORMAL)
+//        and unlocks tap-to-place as soon as it appears.
+//     2. A 2.5-second timer fires regardless, so the user can always tap
+//        even if the tracking status path never triggers.
+//   On tap, XR8.XrController.hitTest() detects the surface at that exact
+//   point — placement is driven by the hit test, not a global status flag.
 // ─────────────────────────────────────────────────────────────────────
 
 function buildPipelineModule() {
   // ── State ──────────────────────────────────────────────────────────
   let scene, camera, renderer;
-  let documentMesh = null;     // the placed Three.js mesh (null until placed)
-  let textureReady = null;     // resolved THREE.Texture (null until loaded)
-  let surfaceFound = false;    // true once SLAM has detected a horizontal plane
-  let placed = false;          // true once the user has tapped to place
+  let documentMesh  = null;   // Three.js mesh; null until first successful hit
+  let textureReady  = null;   // resolved THREE.Texture; null until loaded
+  let textureApplied = false; // prevents redundant material swaps on reposition
+  let readyToPlace  = false;  // true once SLAM has had time to initialise
+  let readyTimer    = null;   // handle for the time-based fallback
 
   // ── Scene setup ────────────────────────────────────────────────────
 
-  function initScene(canvas) {
-    // 8th Wall provides XR8.Threejs.xrScene() which contains a pre-built
-    // { scene, camera, renderer } wired to the camera feed canvas.
+  function initScene() {
+    // XR8.Threejs.xrScene() returns the pre-built { scene, camera, renderer }
+    // that 8th Wall manages. Do not create your own — use these.
     const xrScene = XR8.Threejs.xrScene();
     scene    = xrScene.scene;
     camera   = xrScene.camera;
     renderer = xrScene.renderer;
 
-    // Ambient light so the texture is visible without directional shadows.
-    const ambient = new THREE.AmbientLight(0xffffff, 1.0);
-    scene.add(ambient);
+    scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
-    // Directional light at ~45° above, casting gentle shadows.
     const sun = new THREE.DirectionalLight(0xffffff, 0.6);
     sun.position.set(1, 2, 1);
     scene.add(sun);
 
-    // Start fetching the texture in parallel with the user finding a surface.
+    // Fetch the LOC texture in the background while the user scans for a
+    // surface. Stage A/B staging will be added in the full app; for the
+    // POC we just start loading immediately.
     loadTexture(POC_ITEM.imageUrl)
       .then((tex) => {
         textureReady = tex;
-
-        // If the user already placed the mesh before the texture arrived,
-        // apply it now. (Unlikely in practice but handles slow connections.)
-        if (documentMesh) {
+        // If the user already placed the mesh, apply the texture now.
+        if (documentMesh && !textureApplied) {
           applyTexture(documentMesh, textureReady);
-          setStatus('Placed! Move around to inspect.');
-        } else if (placed) {
-          // placed flag set but mesh not yet created — shouldn't happen, but safe.
-        } else if (surfaceFound) {
-          setStatus('Surface found — tap to place.');
-        } else {
-          setStatus('Move your camera slowly over a flat surface.');
+          setStatus('Image loaded — tap to reposition.');
         }
+        // Otherwise it will be applied on the next successful tap.
       })
       .catch((err) => {
         console.error('[poc] texture load error', err);
-        setStatus('Image failed to load. Check console for details.');
+        setStatus('Image failed to load — check console.');
       });
 
-    setStatus('Move your camera slowly over a flat surface.');
+    setStatus('Move camera slowly over a flat surface…');
   }
 
   // ── Mesh creation ──────────────────────────────────────────────────
 
   function createDocumentMesh() {
     const { w, h } = physicalSize(POC_ITEM);
-    const geometry = new THREE.PlaneGeometry(w, h);
+    const geo = new THREE.PlaneGeometry(w, h);
 
-    // While the texture loads we show a semi-transparent placeholder so the
-    // user has visual confirmation that placement worked.
-    const material = new THREE.MeshBasicMaterial({
-      color: 0xfff8e7,          // warm off-white, like aged parchment
-      side: THREE.DoubleSide,   // visible from both sides (user may tilt phone)
+    // Warm off-white placeholder while the texture is in flight.
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xfff8e7,
+      side: THREE.DoubleSide,
       transparent: true,
       opacity: 0.7,
     });
 
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(geo, mat);
 
-    // By default PlaneGeometry is vertical (facing +Z).
-    // We rotate it −90° around X so it lies flat on the detected surface,
-    // parallel to the ground plane.
+    // PlaneGeometry faces +Z by default. Rotate −90° around X to lay it
+    // flat, parallel to the detected horizontal surface.
     mesh.rotation.x = -Math.PI / 2;
 
     return mesh;
   }
 
   function applyTexture(mesh, texture) {
-    // Replace the placeholder material with the real textured one.
+    // Guard: only swap the material once. Subsequent repositions just move
+    // the mesh; they don't need to rebuild the material.
+    if (textureApplied) return;
+    textureApplied = true;
+
     mesh.material.dispose();
     mesh.material = new THREE.MeshBasicMaterial({
       map: texture,
@@ -225,35 +221,32 @@ function buildPipelineModule() {
     });
   }
 
-  // ── Placement ──────────────────────────────────────────────────────
+  // ── Placement / repositioning ───────────────────────────────────────
 
   /**
-   * Places the document mesh at the given world-space position.
-   * Called on tap when a surface has been detected.
+   * Places or repositions the document mesh at a SLAM hit-test position.
+   * Creates the mesh on first call; repositions it on subsequent calls.
    *
    * @param {{ x: number, y: number, z: number }} position  World-space hit point
-   * @param {{ x: number, y: number, z: number, w: number }} rotation  Hit-point quaternion
    */
-  function placeDocument(position, rotation) {
-    if (placed) return;  // only allow one placement in the POC
-    placed = true;
+  function placeOrMoveDocument(position) {
+    if (!documentMesh) {
+      // First placement — create the mesh and add it to the scene.
+      documentMesh = createDocumentMesh();
+      scene.add(documentMesh);
+    }
 
-    documentMesh = createDocumentMesh();
-
-    // Position at the SLAM hit point.
     documentMesh.position.set(position.x, position.y, position.z);
 
-    // We ignore the hit-point rotation for this POC — keeping the document
-    // axis-aligned simplifies scale validation. The full app will align to
-    // the surface normal.
-
-    scene.add(documentMesh);
-
-    if (textureReady) {
+    if (textureReady && !textureApplied) {
       applyTexture(documentMesh, textureReady);
-      setStatus('Placed! Move around to inspect.');
+    }
+
+    const sizeLabel = `${(POC_ITEM.widthM * 100).toFixed(0)} × ${(POC_ITEM.heightM * 100).toFixed(0)} cm`;
+    if (textureApplied) {
+      setStatus(`Placed (${sizeLabel}) — tap to reposition.`);
     } else {
-      setStatus('Placed! Loading image…');
+      setStatus(`Placed (${sizeLabel}) — image loading…`);
     }
   }
 
@@ -263,57 +256,55 @@ function buildPipelineModule() {
     name: 'AmericaAroundMePOC',
 
     onStart({ canvas }) {
-      initScene(canvas);
+      initScene();
 
-      // Tap-to-place: listen for touchend on the canvas.
-      // We use touchend (not click) because 'click' has a ~300ms delay
-      // on iOS Safari unless the page declares touch-action: manipulation.
+      // Time-based fallback: if onUpdate hasn't seen any SLAM signal after
+      // 2.5 s, unlock tapping anyway. The hit test itself will tell us
+      // whether there is a usable surface at the tap point.
+      readyTimer = setTimeout(() => {
+        if (!readyToPlace) {
+          readyToPlace = true;
+          setStatus('Tap anywhere to place.');
+        }
+      }, 2500);
+
+      // Tap-to-place / tap-to-reposition.
+      // touchend avoids the 300 ms click delay on iOS Safari.
       canvas.addEventListener('touchend', (e) => {
         e.preventDefault();
 
-        if (!surfaceFound) {
-          setStatus('Keep moving the camera over a flat surface…');
-          return;
-        }
-        if (placed) return;  // already placed
-
-        // Ask 8th Wall for a surface hit at the centre of the screen.
-        // XrController.recenterCamera() or hitTest can be used here.
-        // The simplest approach for the POC: place at the last known
-        // surface position, which 8th Wall stores in XrController.
-        const hitTestResults = XR8.XrController.hitTest(
-          // normalised screen coords: centre of the screen
-          e.changedTouches[0].clientX / window.innerWidth,
-          e.changedTouches[0].clientY / window.innerHeight,
-          // hit-test types: mesh surface only (no feature points in POC)
-          ['FEATURE_POINT', 'ESTIMATED_SURFACE']
-        );
-
-        if (hitTestResults.length === 0) {
-          setStatus('Couldn\'t detect a surface here. Try tapping elsewhere.');
+        if (!readyToPlace) {
+          setStatus('Still initialising — try again in a moment.');
           return;
         }
 
-        const hit = hitTestResults[0];
-        placeDocument(hit.position, hit.rotation);
+        const touch = e.changedTouches[0];
+        const nx = touch.clientX / window.innerWidth;
+        const ny = touch.clientY / window.innerHeight;
+
+        // Ask XrController for the world-space point on the detected surface
+        // under the tap. No type filter — let the engine pick the best result.
+        const hits = XR8.XrController.hitTest(nx, ny);
+
+        if (!hits || hits.length === 0) {
+          setStatus('No surface detected here — try a flat, well-lit area.');
+          return;
+        }
+
+        placeOrMoveDocument(hits[0].position);
       }, { passive: false });
     },
 
     onUpdate({ processCpuResult }) {
-      // processCpuResult contains the SLAM output for this frame.
-      // We use it only to update the surfaceFound flag and status text.
-      if (!processCpuResult?.reality) return;
+      // Accelerate readiness: if SLAM reports any tracking before the 2.5 s
+      // timer fires, unlock tapping immediately.
+      if (readyToPlace) return;
 
-      const { detectedImages, slam } = processCpuResult.reality;
-
-      // Check if SLAM has a confident surface estimate this frame.
-      // XrController provides surface tracking confidence via the
-      // `trackingStatus` field. 'LIMITED' = some tracking, 'NORMAL' = confident.
-      if (!placed && slam && slam.trackingStatus === 'NORMAL') {
-        if (!surfaceFound) {
-          surfaceFound = true;
-          setStatus('Surface found — tap to place.');
-        }
+      const slam = processCpuResult?.reality?.slam;
+      if (slam?.trackingStatus === 'LIMITED' || slam?.trackingStatus === 'NORMAL') {
+        readyToPlace = true;
+        clearTimeout(readyTimer);
+        setStatus('Tap anywhere to place.');
       }
     },
 

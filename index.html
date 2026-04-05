@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!--
+    maximum-scale=1 / user-scalable=no: prevents iOS Safari from zooming on
+    double-tap, which interferes with AR tap-to-place interactions.
+  -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <!--
+    apple-mobile-web-app-capable: enables full-screen mode when added to
+    iOS home screen, hiding the Safari chrome for a cleaner AR experience.
+  -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <title>America Around Me — POC</title>
+
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      /* Prevent iOS rubber-band scroll from disrupting the AR canvas */
+      overscroll-behavior: none;
+    }
+
+    /*
+      The canvas fills the viewport. 8th Wall writes the camera feed and
+      Three.js scene directly into this element.
+    */
+    #camerafeed {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /*
+      Status overlay — sits above the canvas, centered at the bottom,
+      respects iPhone notch / home-indicator safe area.
+    */
+    #overlay {
+      position: fixed;
+      bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+      left: 0;
+      right: 0;
+      padding: 0 24px 16px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      pointer-events: none;   /* clicks / touches pass through to the canvas */
+      z-index: 10;
+    }
+
+    #status {
+      background: rgba(0, 0, 0, 0.55);
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      line-height: 1.4;
+      padding: 10px 20px;
+      border-radius: 24px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      max-width: 340px;
+      text-align: center;
+    }
+  </style>
+
+  <!--
+    THREE.JS — loaded synchronously so THREE is a global by the time
+    8th Wall's XR8.Threejs.pipelineModule() initialises.
+
+    Pinned to r152 for 8th Wall compatibility. If you upgrade Three.js,
+    test on both iOS Safari and Android Chrome before committing.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+</head>
+<body>
+
+  <!-- 8th Wall renders the camera feed + Three.js scene into this canvas -->
+  <canvas id="camerafeed"></canvas>
+
+  <!-- User-facing status messages (texture loading, surface prompts, errors) -->
+  <div id="overlay">
+    <span id="status">Initialising AR…</span>
+  </div>
+
+  <!--
+    8TH WALL OPEN-SOURCE ENGINE
+    ───────────────────────────
+    @8thwall/engine-binary — MIT-licensed JS framework with proprietary
+    binary SLAM. No account, no App Key, no authorised-domains list.
+
+    data-preload-chunks="slam" tells the loader to fetch the SLAM binary
+    immediately rather than waiting for XR8.run() — shaves ~300 ms off
+    first-surface detection on cold loads.
+
+    The script is async; our AR code runs inside the 'xrloaded' event
+    callback in poc.js, which fires once the engine is ready.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+          async crossorigin="anonymous" data-preload-chunks="slam"></script>
+
+  <!--
+    poc.js — our AR logic.
+    Loaded synchronously so its window.addEventListener('xrloaded', …)
+    is registered before the async 8th Wall scripts can fire the event.
+  -->
+  <script src="poc.js"></script>
+
+</body>
+</html>

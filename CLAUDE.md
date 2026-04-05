@@ -96,6 +96,24 @@ An invalid identifier returns a 404. LOC's server does not send
 failure as a CORS error — masking the real cause (wrong identifier).
 Always verify a new identifier via `info.json` before hardcoding it.
 
+**Identifier structure varies completely by LOC division.** Never guess or
+derive identifiers by pattern — always take them verbatim from the manifest
+canvas `@id` field. Examples from confirmed-working items:
+
+| Division | Example identifier |
+|---|---|
+| Geography & Map (gmd) | `service:gmd:gmd3:g3200:g3200:ct002354` |
+| Prints & Photographs (pnp) | TBD — requires manifest verification |
+
+**LOC physical dimensions** are not in the IIIF manifest. Retrieve them from
+the MODS record linked in the manifest's `seeAlso` array:
+```
+https://lccn.loc.gov/{lccn}/mods
+```
+Look for the `<physicalDescription><extent>` field.
+Note: the main `loc.gov` item pages return 403 from Cloudflare bot protection
+when fetched programmatically; the MODS endpoint does not.
+
 ---
 
 ## Build phases
@@ -107,10 +125,11 @@ Always verify a new identifier via `info.json` before hardcoding it.
 - One document placed on a SLAM-detected surface at physical scale
 - Files: `index.html`, `poc.js`
 
-**Test item:** "Migrant Mother" — Dorothea Lange, 1936
-- LOC ID: LC-DIG-fsa-8b29516
-- IIIF: `service:pnp:fsa:8b29000:8b29516u`
-- Size: 8×10 in photo print → 0.2032 m × 0.2540 m
+**Test item:** "Colton's World Map" — D. Griffing Johnson / J.H. Colton, 1854
+- LOC item: 2009579466
+- IIIF manifest: `https://www.loc.gov/item/2009579466/manifest.json`
+- IIIF identifier (from manifest canvas @id): `service:gmd:gmd3:g3200:g3200:ct002354`
+- Physical size (from MODS record): 176 × 118 cm → 1.76 m × 1.18 m
 
 ### Phase 2 — Full app (TBD)
 Begins after Phase 1 validates on iOS Safari + Android Chrome.

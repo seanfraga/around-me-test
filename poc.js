@@ -19,35 +19,42 @@
  * HARDCODED TEST ITEM
  * ─────────────────────────────────────────────────────────────────────
  *
- * Library of Congress item: "Migrant Mother" — Dorothea Lange, 1936
- * FSA/OWI Collection, LC-DIG-fsa-8b29516
- * IIIF Image URL: a 1024×1024-capped JPEG served by the LOC IIIF endpoint.
+ * Library of Congress item: "Colton's Illustrated & Embellished Steel Plate
+ * Map of the World" — D. Griffing Johnson / J.H. Colton, 1854
+ * Geography and Map Division, LOC item 2009579466
+ * IIIF Manifest: https://www.loc.gov/item/2009579466/manifest.json
  *
- * Physical size: standard 8×10 inch photographic print = 0.2032 m × 0.2540 m.
- * We store dimensions in METRES for Three.js (1 unit = 1 metre).
+ * This identifier was taken directly from the manifest's canvas @id — the
+ * only reliable source for LOC IIIF identifiers. LOC identifier structure
+ * varies completely by division; never guess or derive them by pattern.
  *
- * To verify any LOC IIIF identifier before using it, open its info.json:
+ * Physical dimensions from LOC MODS catalog record: 118 × 176 cm
+ * (height × width, library convention). Stored in METRES for Three.js.
+ * 1 Three.js unit = 1 real-world metre.
+ *
+ * To verify any LOC IIIF identifier, open its info.json:
  *   https://tile.loc.gov/image-services/iiif/{identifier}/info.json
- * A valid identifier returns JSON; an invalid one returns a 404 (which
- * also suppresses the CORS header, making it look like a CORS error).
+ * A 200 response with JSON = valid. A 404 = wrong identifier (the server
+ * also omits CORS headers on 404s, so Safari mis-reports it as a CORS error).
  *
  * Change POC_ITEM to swap in any other LOC IIIF image for testing.
  */
 const POC_ITEM = {
-  label: 'Migrant Mother (Dorothea Lange, 1936)',
+  label: "Colton's World Map (1854)",
 
   // IIIF Image API URL, size-capped at 1024 on the longest dimension.
-  // Identifier breakdown: service:pnp = Prints & Photographs service;
-  //   fsa = FSA/OWI sub-collection; 8b29000 = folder (files 8b29000–8b29999);
-  //   8b29516u = file ID ('u' suffix = unretouched b&w master).
+  // Identifier taken verbatim from the manifest canvas @id:
+  //   service:gmd = Geography & Map Division service
+  //   gmd3        = sub-collection folder
+  //   g3200/g3200 = world-maps folder hierarchy
+  //   ct002354    = item file ID
   imageUrl:
-    'https://tile.loc.gov/image-services/iiif/service:pnp:fsa:8b29000:8b29516u/full/!1024,1024/0/default.jpg',
+    'https://tile.loc.gov/image-services/iiif/service:gmd:gmd3:g3200:g3200:ct002354/full/!1024,1024/0/default.jpg',
 
-  // Physical dimensions of the original print in METRES.
-  // Source: document-type lookup table (not IIIF physicalUnits).
-  // Standard FSA 8×10 photographic print: 8 in × 10 in
-  widthM:  0.2032,   // 8 inches
-  heightM: 0.2540,   // 10 inches
+  // Physical dimensions from LOC MODS record: "1 map : hand col. ; 118 x 176 cm"
+  // Library convention is height × width, so width = 1.76 m, height = 1.18 m.
+  widthM:  1.76,   // 176 cm
+  heightM: 1.18,   // 118 cm
 };
 
 // ─────────────────────────────────────────────────────────────────────

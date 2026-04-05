@@ -19,27 +19,35 @@
  * HARDCODED TEST ITEM
  * ─────────────────────────────────────────────────────────────────────
  *
- * Library of Congress item: "Declaration of Independence" (engrossed copy)
+ * Library of Congress item: "Migrant Mother" — Dorothea Lange, 1936
+ * FSA/OWI Collection, LC-DIG-fsa-8b29516
  * IIIF Image URL: a 1024×1024-capped JPEG served by the LOC IIIF endpoint.
  *
- * Physical size of the original parchment: ~74 cm wide × 65 cm tall.
- * We store dimensions in METERS for Three.js (1 unit = 1 metre).
+ * Physical size: standard 8×10 inch photographic print = 0.2032 m × 0.2540 m.
+ * We store dimensions in METRES for Three.js (1 unit = 1 metre).
+ *
+ * To verify any LOC IIIF identifier before using it, open its info.json:
+ *   https://tile.loc.gov/image-services/iiif/{identifier}/info.json
+ * A valid identifier returns JSON; an invalid one returns a 404 (which
+ * also suppresses the CORS header, making it look like a CORS error).
  *
  * Change POC_ITEM to swap in any other LOC IIIF image for testing.
  */
 const POC_ITEM = {
-  label: 'Declaration of Independence',
+  label: 'Migrant Mother (Dorothea Lange, 1936)',
 
   // IIIF Image API URL, size-capped at 1024 on the longest dimension.
-  // Format: {base}/{region}/{size}/{rotation}/{quality}.{format}
+  // Identifier breakdown: service:pnp = Prints & Photographs service;
+  //   fsa = FSA/OWI sub-collection; 8b29000 = folder (files 8b29000–8b29999);
+  //   8b29516u = file ID ('u' suffix = unretouched b&w master).
   imageUrl:
-    'https://tile.loc.gov/image-services/iiif/service:rbc:rbpe:rbpe00:rbpe0001700a/full/!1024,1024/0/default.jpg',
+    'https://tile.loc.gov/image-services/iiif/service:pnp:fsa:8b29000:8b29516u/full/!1024,1024/0/default.jpg',
 
-  // Physical dimensions of the original document in METRES.
+  // Physical dimensions of the original print in METRES.
   // Source: document-type lookup table (not IIIF physicalUnits).
-  // Declaration parchment: ~74 cm × 65 cm → 0.74 m × 0.65 m
-  widthM: 0.74,
-  heightM: 0.65,
+  // Standard FSA 8×10 photographic print: 8 in × 10 in
+  widthM:  0.2032,   // 8 inches
+  heightM: 0.2540,   // 10 inches
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -319,6 +327,28 @@ function buildPipelineModule() {
 window.addEventListener('xrloaded', () => {
   // The open-source engine fires 'xrloaded' when XR8 is ready.
   // No XrExtras wrapper needed — we drive loading state ourselves.
+
+  const canvas = document.getElementById('camerafeed');
+
+  // ── Canvas pixel dimensions ─────────────────────────────────────────
+  // The old XrExtras.FullWindowCanvas pipeline module handled this. Now
+  // that we're using the open-source engine without XrExtras, we must
+  // set canvas.width / canvas.height explicitly ourselves.
+  //
+  // Why this matters:
+  //   CSS `width: 100%; height: 100%` only scales the canvas element
+  //   visually. The WebGL framebuffer size is controlled by the canvas's
+  //   .width and .height *attributes* (not CSS). Without setting them,
+  //   they default to the HTML spec default of 300×150 px, which Safari
+  //   then stretches to fill the screen — producing a blurry viewport
+  //   roughly 1/5 the size of a typical phone screen.
+  const resizeCanvas = () => {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+  };
+  resizeCanvas();                             // set before XR8.run()
+  window.addEventListener('resize', resizeCanvas);  // keep in sync on rotation
+
   XR8.addCameraPipelineModules([
     // Core modules (order matters — keep this sequence):
     XR8.GlTextureRenderer.pipelineModule(),   // draws the camera feed
@@ -338,5 +368,5 @@ window.addEventListener('xrloaded', () => {
     buildPipelineModule(),
   ]);
 
-  XR8.run({ canvas: document.getElementById('camerafeed') });
+  XR8.run({ canvas });
 });

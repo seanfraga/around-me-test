@@ -198,13 +198,9 @@ function buildPipelineModule() {
       opacity: 0.7,
     });
 
-    const mesh = new THREE.Mesh(geo, mat);
-
-    // PlaneGeometry faces +Z by default. Rotate −90° around X to lay it
-    // flat, parallel to the detected horizontal surface.
-    mesh.rotation.x = -Math.PI / 2;
-
-    return mesh;
+    // No rotation set here — placeOrMoveDocument sets the full rotation
+    // dynamically so the bottom edge always faces the camera.
+    return new THREE.Mesh(geo, mat);
   }
 
   function applyTexture(mesh, texture) {
@@ -237,6 +233,25 @@ function buildPipelineModule() {
     }
 
     documentMesh.position.set(position.x, position.y, position.z);
+
+    // ── Orientation ────────────────────────────────────────────────────
+    // PlaneGeometry lies in the local XY plane; after an X rotation of
+    // -π/2 it lies flat (normal pointing up). After that rotation, the
+    // texture's bottom edge (UV v=0) points toward world +Z, and the top
+    // edge (UV v=1) points toward world -Z.
+    //
+    // In 8th Wall's SLAM coordinate system the initial camera sits at -Z
+    // relative to placed objects, so without a Y rotation the top of the
+    // texture faces the camera — appearing upside-down AND horizontally
+    // mirrored (both axes wrong = 180° rotated).
+    //
+    // Fix: compute the angle from the document to the camera's XZ position
+    // and use it as the Y rotation. atan2(dx, dz) returns the angle whose
+    // sine/cosine make the bottom edge of the texture point directly toward
+    // the camera, correcting both the flip and the mirror in one step.
+    const dx = camera.position.x - position.x;
+    const dz = camera.position.z - position.z;
+    documentMesh.rotation.set(-Math.PI / 2, Math.atan2(dx, dz), 0);
 
     if (textureReady && !textureApplied) {
       applyTexture(documentMesh, textureReady);

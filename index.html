@@ -76,6 +76,25 @@
       max-width: 340px;
       text-align: center;
     }
+
+    /*
+      Version badge — upper-right corner.
+      Increment by +0.1 with each merged PR so it's visible on device
+      without opening DevTools, confirming GitHub Pages has deployed.
+    */
+    #version {
+      position: fixed;
+      top: max(env(safe-area-inset-top, 0px), 12px);
+      right: 16px;
+      color: rgba(255, 255, 255, 0.65);
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      pointer-events: none;
+      z-index: 10;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    }
   </style>
 
   <!--
@@ -91,6 +110,9 @@
 
   <!-- 8th Wall renders the camera feed + Three.js scene into this canvas -->
   <canvas id="camerafeed"></canvas>
+
+  <!-- Version badge — upper-right; increment by +0.1 per merged PR -->
+  <div id="version">v0.4</div>
 
   <!-- User-facing status messages (texture loading, surface prompts, errors) -->
   <div id="overlay">

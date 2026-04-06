@@ -272,7 +272,7 @@ function buildPipelineModule() {
     const fwdLen = Math.sqrt(fwdX * fwdX + fwdZ * fwdZ) || 1;
     const nfwdX = fwdX / fwdLen;
     const nfwdZ = fwdZ / fwdLen;
-    documentMesh.rotation.set(Math.PI / 2, Math.atan2(nfwdX, nfwdZ), 0, 'YXZ');
+    documentMesh.rotation.set(Math.PI / 2, Math.atan2(-nfwdX, -nfwdZ), 0, 'YXZ');
 
     if (textureReady && !textureApplied) {
       applyTexture(documentMesh, textureReady);

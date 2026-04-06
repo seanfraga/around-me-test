@@ -49,7 +49,7 @@ const POC_ITEM = {
   //   g3200/g3200 = world-maps folder hierarchy
   //   ct002354    = item file ID
   imageUrl:
-    'https://tile.loc.gov/image-services/iiif/service:gmd:gmd3:g3200:g3200:ct002354/full/!1024,1024/0/default.jpg',
+    'https://tile.loc.gov/image-services/iiif/service:gmd:gmd3:g3200:g3200:ct002354/full/!2048,2048/0/default.jpg',
 
   // Physical dimensions from LOC MODS record: "1 map : hand col. ; 118 x 176 cm"
   // Library convention is height × width, so width = 1.76 m, height = 1.18 m.
@@ -235,59 +235,53 @@ function buildPipelineModule() {
     documentMesh.position.set(position.x, position.y, position.z);
 
     // ── Orientation ────────────────────────────────────────────────────
-    // Goal: the document lies flat (normal = world +Y) with:
-    //   • image right  appearing on the viewer's right  (no mirror)
-    //   • image bottom appearing nearest the viewer     (right-side-up)
+    // Goal: the document lies flat on the detected surface with:
+    //   • image bottom edge nearest the viewer   (right-side-up)
+    //   • image right side on the viewer's right (no mirror)
     //
-    // WHY EULER ANGLES DON'T WORK HERE
-    // Euler XYZ rotation.set(-π/2, θ, 0) lays the plane flat, then spins
-    // it around the vertical axis. But the spin (θ) only changes which
-    // compass direction the plane faces — it does NOT change where the
-    // texture's top/bottom edges point relative to the camera. Both edges
-    // stay locked to world ±Z regardless of θ (because Ry never changes
-    // local-Y in the XZ plane). Adding a Z rotation fixes the flip but
-    // also mirrors X. This is why atan2-based Euler attempts produce the
-    // correct result for one facing direction but not the opposite.
+    // APPROACH: pure Euler rotation.set(-π/2, θ, 0)
     //
-    // THE CORRECT APPROACH: quaternion from a camera-aligned basis matrix.
-    // We read the camera's actual world-matrix axes (not inferred from
-    // position) and build an explicit orthonormal basis:
+    //   Rx(-π/2) — lays the plane flat. Normal goes from +Z to +Y (up).
+    //              This is all that's needed for flatness; the Y rotation
+    //              below only changes compass heading, never tilt. Using
+    //              a basis-matrix / quaternion approach introduces tilt
+    //              when camera pitch is non-zero (e.g. looking down at
+    //              a floor), so we avoid it here.
     //
-    //   local X → camera right (XZ-projected)
-    //             image right appears on viewer's right ✓ no mirror
+    //   Ry(θ)    — spins the flat plane to the correct compass heading
+    //              so the image bottom faces the viewer.
     //
-    //   local Y → camera forward (XZ-projected)
-    //             texture top faces AWAY from viewer; texture bottom is
-    //             nearest — so the image reads right-side-up ✓
+    // HOW θ IS COMPUTED
+    // After Ry(θ)*Rx(-π/2), the plane's local +Y axis (which the
+    // Three.js/OpenGL texture pipeline maps to the image BOTTOM because
+    // PlaneGeometry UVs run v=0→top, v=1→bottom with flipY=true) points
+    // in world direction (-sin θ, 0, -cos θ).
     //
-    //   local Z → world up (0,1,0)
-    //             plane normal points up, mesh lies flat on the surface ✓
+    // We want that direction to equal the camera's forward direction
+    // projected onto XZ (the direction the user is looking, which is
+    // also the direction "away from the user" → image bottom faces
+    // the opposite = toward the user).
     //
-    // Column 0 of matrixWorld = camera local +X = world right direction.
-    // Column 2 of matrixWorld = camera local +Z = world "backward".
-    // Negating col 2 gives camera forward (look direction).
-    // Projecting both onto XZ (y = 0) makes orientation independent of
-    // camera pitch (the tilt angle when looking down at the floor).
-
-    const cameraRight = new THREE.Vector3()
-      .setFromMatrixColumn(camera.matrixWorld, 0)
-      .setY(0)
-      .normalize();
-
-    // col 2 of a column-major Matrix4: elements [8, 9, 10]
-    const cameraForwardXZ = new THREE.Vector3(
-      -camera.matrixWorld.elements[8],
-      0,
-      -camera.matrixWorld.elements[10]
-    ).normalize();
-
-    documentMesh.quaternion.setFromRotationMatrix(
-      new THREE.Matrix4().makeBasis(
-        cameraRight,               // local X
-        cameraForwardXZ,           // local Y
-        new THREE.Vector3(0, 1, 0) // local Z = world up = plane normal
-      )
-    );
+    //   (-sin θ, -cos θ) = (fwdX, fwdZ)
+    //   → sin θ = -fwdX, cos θ = -fwdZ
+    //   → θ = atan2(-fwdX, -fwdZ)
+    //        = atan2(fwdX, fwdZ) + π   (equivalent)
+    //
+    // WHY CAMERA FORWARD, NOT (camera.position - mesh.position):
+    // When tapping the floor, the camera is nearly directly above the
+    // hit point, so dx ≈ 0 and dz ≈ 0 — atan2(0,0) is undefined and
+    // the result is random. Camera forward (column 2 of matrixWorld,
+    // negated) is stable regardless of hit location.
+    //
+    // Three.js Matrix4 is column-major; column 2 = elements[8..10].
+    // Camera looks in local -Z, so camera forward = -column2.
+    const fwdX = -camera.matrixWorld.elements[8];
+    const fwdZ = -camera.matrixWorld.elements[10];
+    // fwdX/fwdZ may not be unit-length after XZ projection; normalise.
+    const fwdLen = Math.sqrt(fwdX * fwdX + fwdZ * fwdZ) || 1;
+    const nfwdX = fwdX / fwdLen;
+    const nfwdZ = fwdZ / fwdLen;
+    documentMesh.rotation.set(-Math.PI / 2, Math.atan2(-nfwdX, -nfwdZ), 0);
 
     if (textureReady && !textureApplied) {
       applyTexture(documentMesh, textureReady);

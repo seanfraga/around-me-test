@@ -146,6 +146,7 @@ function buildPipelineModule() {
   let textureApplied = false; // prevents redundant material swaps on reposition
   let readyToPlace  = false;  // true once SLAM has had time to initialise
   let readyTimer    = null;   // handle for the time-based fallback
+  let placed        = false;  // true after first successful placement; blocks re-taps
 
   // ── Scene setup ────────────────────────────────────────────────────
 
@@ -172,7 +173,8 @@ function buildPipelineModule() {
         // If the user already placed the mesh, apply the texture now.
         if (documentMesh && !textureApplied) {
           applyTexture(documentMesh, textureReady);
-          setStatus('Image loaded — tap to reposition.');
+          const sizeLabel = `${(POC_ITEM.widthM * 100).toFixed(0)} × ${(POC_ITEM.heightM * 100).toFixed(0)} cm`;
+          setStatus(`${POC_ITEM.label} — ${sizeLabel}`);
         }
         // Otherwise it will be applied on the next successful tap.
       })
@@ -236,54 +238,42 @@ function buildPipelineModule() {
 
     // ── Orientation ────────────────────────────────────────────────────
     // Goal: the document lies flat on the detected surface with:
-    //   • image bottom edge nearest the viewer   (right-side-up)
-    //   • image right side on the viewer's right (no mirror)
+    //   • image top edge facing away from the viewer (right-side-up)
+    //   • image right side on the viewer's right    (no mirror)
     //
-    // APPROACH: pure Euler rotation.set(-π/2, θ, 0)
+    // APPROACH: Euler 'YXZ' order — rotation.set(+π/2, θ, 0, 'YXZ')
     //
-    //   Rx(-π/2) — lays the plane flat. Normal goes from +Z to +Y (up).
-    //              This is all that's needed for flatness; the Y rotation
-    //              below only changes compass heading, never tilt. Using
-    //              a basis-matrix / quaternion approach introduces tilt
-    //              when camera pitch is non-zero (e.g. looking down at
-    //              a floor), so we avoid it here.
+    // 'YXZ' Euler order produces matrix M = Ry(θ) · Rx(+π/2).
     //
-    //   Ry(θ)    — spins the flat plane to the correct compass heading
-    //              so the image bottom faces the viewer.
+    //   Rx(+π/2) — PlaneGeometry lies in XY; Rx(+π/2) rotates local:
+    //              +Y → +Z,  +Z → −Y
+    //              Normal (was +Z) → −Y (pointing down) = flat on floor. ✓
+    //
+    //   Ry(θ)    — spins the already-flat plane around world Y (vertical),
+    //              which is axis-aligned and never causes tilt. The image top
+    //              (local +Y, now world +Z after Rx) → (sinθ, 0, cosθ).
     //
     // HOW θ IS COMPUTED
-    // After Ry(θ)*Rx(-π/2), the plane's local +Y axis (which the
-    // Three.js/OpenGL texture pipeline maps to the image BOTTOM because
-    // PlaneGeometry UVs run v=0→top, v=1→bottom with flipY=true) points
-    // in world direction (-sin θ, 0, -cos θ).
-    //
-    // We want that direction to equal the camera's forward direction
-    // projected onto XZ (the direction the user is looking, which is
-    // also the direction "away from the user" → image bottom faces
-    // the opposite = toward the user).
-    //
-    //   (-sin θ, -cos θ) = (fwdX, fwdZ)
-    //   → sin θ = -fwdX, cos θ = -fwdZ
-    //   → θ = atan2(-fwdX, -fwdZ)
-    //        = atan2(fwdX, fwdZ) + π   (equivalent)
+    // We want the image top, (sinθ, 0, cosθ), to equal the camera-forward
+    // direction projected onto XZ, (fwdX, 0, fwdZ):
+    //   sinθ = fwdX,  cosθ = fwdZ  →  θ = atan2(fwdX, fwdZ).
+    // Image right (local +X) → (cosθ, 0, −sinθ), which matches camera
+    // right, so there is no mirror flip.
     //
     // WHY CAMERA FORWARD, NOT (camera.position - mesh.position):
     // When tapping the floor, the camera is nearly directly above the
-    // hit point, so dx ≈ 0 and dz ≈ 0 — atan2(0,0) is undefined and
-    // the result is random. Camera forward (column 2 of matrixWorld,
-    // negated) is stable regardless of hit location.
+    // hit point, so dx ≈ 0, dz ≈ 0 — atan2(0,0) is undefined and the
+    // result is arbitrary. Camera forward is stable regardless of hit point.
     //
     // Three.js Matrix4 is column-major; column 2 = elements[8..10].
-    // Camera looks in local -Z, so camera forward = -column2.
+    // Camera looks along local −Z, so world forward = −column2.
     const fwdX = -camera.matrixWorld.elements[8];
     const fwdZ = -camera.matrixWorld.elements[10];
-    // fwdX/fwdZ may not be unit-length after XZ projection; normalise.
+    // Normalise after XZ projection (fwdY is discarded).
     const fwdLen = Math.sqrt(fwdX * fwdX + fwdZ * fwdZ) || 1;
     const nfwdX = fwdX / fwdLen;
     const nfwdZ = fwdZ / fwdLen;
-    // atan2(fwdX, fwdZ): image bottom faces camera forward = toward viewer.
-    // atan2(-fwdX, -fwdZ) would be 180° wrong: image bottom faces away.
-    documentMesh.rotation.set(-Math.PI / 2, Math.atan2(nfwdX, nfwdZ), 0);
+    documentMesh.rotation.set(Math.PI / 2, Math.atan2(nfwdX, nfwdZ), 0, 'YXZ');
 
     if (textureReady && !textureApplied) {
       applyTexture(documentMesh, textureReady);
@@ -291,7 +281,7 @@ function buildPipelineModule() {
 
     const sizeLabel = `${(POC_ITEM.widthM * 100).toFixed(0)} × ${(POC_ITEM.heightM * 100).toFixed(0)} cm`;
     if (textureApplied) {
-      setStatus(`Placed (${sizeLabel}) — tap to reposition.`);
+      setStatus(`${POC_ITEM.label} — ${sizeLabel}`);
     } else {
       setStatus(`Placed (${sizeLabel}) — image loading…`);
     }
@@ -315,10 +305,15 @@ function buildPipelineModule() {
         }
       }, 2500);
 
-      // Tap-to-place / tap-to-reposition.
+      // Tap-to-place — single placement only.
+      // After the document is placed, further taps are ignored.
+      // Reload the page to reanchor (fine for POC).
       // touchend avoids the 300 ms click delay on iOS Safari.
       canvas.addEventListener('touchend', (e) => {
         e.preventDefault();
+
+        // Ignore taps after first successful placement.
+        if (placed) return;
 
         if (!readyToPlace) {
           setStatus('Still initialising — try again in a moment.');
@@ -338,6 +333,7 @@ function buildPipelineModule() {
           return;
         }
 
+        placed = true;
         placeOrMoveDocument(hits[0].position);
       }, { passive: false });
     },

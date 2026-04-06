@@ -146,7 +146,6 @@ function buildPipelineModule() {
   let textureApplied = false; // prevents redundant material swaps on reposition
   let readyToPlace  = false;  // true once SLAM has had time to initialise
   let readyTimer    = null;   // handle for the time-based fallback
-  let placed        = false;  // true after first successful placement; blocks re-taps
 
   // ── Scene setup ────────────────────────────────────────────────────
 
@@ -305,15 +304,11 @@ function buildPipelineModule() {
         }
       }, 2500);
 
-      // Tap-to-place — single placement only.
-      // After the document is placed, further taps are ignored.
-      // Reload the page to reanchor (fine for POC).
+      // Tap-to-place / tap-to-reposition.
+      // Each tap repositions the document to the new hit point.
       // touchend avoids the 300 ms click delay on iOS Safari.
       canvas.addEventListener('touchend', (e) => {
         e.preventDefault();
-
-        // Ignore taps after first successful placement.
-        if (placed) return;
 
         if (!readyToPlace) {
           setStatus('Still initialising — try again in a moment.');
@@ -333,7 +328,6 @@ function buildPipelineModule() {
           return;
         }
 
-        placed = true;
         placeOrMoveDocument(hits[0].position);
       }, { passive: false });
     },

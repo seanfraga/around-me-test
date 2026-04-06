@@ -281,7 +281,9 @@ function buildPipelineModule() {
     const fwdLen = Math.sqrt(fwdX * fwdX + fwdZ * fwdZ) || 1;
     const nfwdX = fwdX / fwdLen;
     const nfwdZ = fwdZ / fwdLen;
-    documentMesh.rotation.set(-Math.PI / 2, Math.atan2(-nfwdX, -nfwdZ), 0);
+    // atan2(fwdX, fwdZ): image bottom faces camera forward = toward viewer.
+    // atan2(-fwdX, -fwdZ) would be 180° wrong: image bottom faces away.
+    documentMesh.rotation.set(-Math.PI / 2, Math.atan2(nfwdX, nfwdZ), 0);
 
     if (textureReady && !textureApplied) {
       applyTexture(documentMesh, textureReady);

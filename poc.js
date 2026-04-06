@@ -235,23 +235,59 @@ function buildPipelineModule() {
     documentMesh.position.set(position.x, position.y, position.z);
 
     // ── Orientation ────────────────────────────────────────────────────
-    // PlaneGeometry lies in the local XY plane; after an X rotation of
-    // -π/2 it lies flat (normal pointing up). After that rotation, the
-    // texture's bottom edge (UV v=0) points toward world +Z, and the top
-    // edge (UV v=1) points toward world -Z.
+    // Goal: the document lies flat (normal = world +Y) with:
+    //   • image right  appearing on the viewer's right  (no mirror)
+    //   • image bottom appearing nearest the viewer     (right-side-up)
     //
-    // In 8th Wall's SLAM coordinate system the initial camera sits at -Z
-    // relative to placed objects, so without a Y rotation the top of the
-    // texture faces the camera — appearing upside-down AND horizontally
-    // mirrored (both axes wrong = 180° rotated).
+    // WHY EULER ANGLES DON'T WORK HERE
+    // Euler XYZ rotation.set(-π/2, θ, 0) lays the plane flat, then spins
+    // it around the vertical axis. But the spin (θ) only changes which
+    // compass direction the plane faces — it does NOT change where the
+    // texture's top/bottom edges point relative to the camera. Both edges
+    // stay locked to world ±Z regardless of θ (because Ry never changes
+    // local-Y in the XZ plane). Adding a Z rotation fixes the flip but
+    // also mirrors X. This is why atan2-based Euler attempts produce the
+    // correct result for one facing direction but not the opposite.
     //
-    // Fix: compute the angle from the document to the camera's XZ position
-    // and use it as the Y rotation. atan2(dx, dz) returns the angle whose
-    // sine/cosine make the bottom edge of the texture point directly toward
-    // the camera, correcting both the flip and the mirror in one step.
-    const dx = camera.position.x - position.x;
-    const dz = camera.position.z - position.z;
-    documentMesh.rotation.set(-Math.PI / 2, Math.atan2(dx, dz), 0);
+    // THE CORRECT APPROACH: quaternion from a camera-aligned basis matrix.
+    // We read the camera's actual world-matrix axes (not inferred from
+    // position) and build an explicit orthonormal basis:
+    //
+    //   local X → camera right (XZ-projected)
+    //             image right appears on viewer's right ✓ no mirror
+    //
+    //   local Y → camera forward (XZ-projected)
+    //             texture top faces AWAY from viewer; texture bottom is
+    //             nearest — so the image reads right-side-up ✓
+    //
+    //   local Z → world up (0,1,0)
+    //             plane normal points up, mesh lies flat on the surface ✓
+    //
+    // Column 0 of matrixWorld = camera local +X = world right direction.
+    // Column 2 of matrixWorld = camera local +Z = world "backward".
+    // Negating col 2 gives camera forward (look direction).
+    // Projecting both onto XZ (y = 0) makes orientation independent of
+    // camera pitch (the tilt angle when looking down at the floor).
+
+    const cameraRight = new THREE.Vector3()
+      .setFromMatrixColumn(camera.matrixWorld, 0)
+      .setY(0)
+      .normalize();
+
+    // col 2 of a column-major Matrix4: elements [8, 9, 10]
+    const cameraForwardXZ = new THREE.Vector3(
+      -camera.matrixWorld.elements[8],
+      0,
+      -camera.matrixWorld.elements[10]
+    ).normalize();
+
+    documentMesh.quaternion.setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(
+        cameraRight,               // local X
+        cameraForwardXZ,           // local Y
+        new THREE.Vector3(0, 1, 0) // local Z = world up = plane normal
+      )
+    );
 
     if (textureReady && !textureApplied) {
       applyTexture(documentMesh, textureReady);

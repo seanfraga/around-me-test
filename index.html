@@ -170,7 +170,7 @@
   <canvas id="camerafeed"></canvas>
 
   <!-- Version badge — upper-right; increment by +0.1 per merged PR -->
-  <div id="version">v1.0</div>
+  <div id="version">v1.1</div>
 
   <!-- User-facing status messages (texture loading, surface prompts, errors) -->
   <div id="overlay">
@@ -186,7 +186,7 @@
     <a href="https://www.loc.gov/item/2009579466/"
        target="_blank"
        rel="noopener noreferrer">
-      &#x201C;Colton&#x2019;s illustrated &amp; embellished steel plate map of the world on Mercator&#x2019;s projection&#x201D; (1854). Learn more about this item on loc.gov.
+      &#x201C;Colton&#x2019;s illustrated &amp; embellished steel plate map of the world on Mercator&#x2019;s projection&#x201D; (1854).<br>Learn more about this item on loc.gov. &#x2197;
     </a>
   </div>
 
@@ -195,9 +195,14 @@
     <p>Open this page on a mobile device to access the America Around Me proof of concept.</p>
   </div>
 
+  <!-- Motion sensor fallback — shown when motion/orientation permission is denied -->
+  <div id="fallback-motion" class="fallback">
+    <p>Please allow motion sensor access to use the America Around Me proof of concept.</p>
+  </div>
+
   <!-- Camera fallback — shown when camera permission is denied -->
   <div id="fallback-camera" class="fallback">
-    <p>Please grant camera access to use the America Around Me proof of concept.</p>
+    <p>Please allow camera access to use the America Around Me proof of concept.</p>
   </div>
 
   <!--
@@ -238,7 +243,7 @@
     Loaded synchronously so its window.addEventListener('xrloaded', …)
     is registered before the async 8th Wall scripts can fire the event.
   -->
-  <script src="concept.js?v=1.0"></script>
+  <script src="concept.js?v=1.1"></script>
 
 </body>
 </html>

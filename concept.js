@@ -60,21 +60,24 @@ const CONCEPT_ITEM = {
 // ─────────────────────────────────────────────────────────────────────
 // UI HELPERS
 // ─────────────────────────────────────────────────────────────────────
-const statusEl   = /** @type {HTMLElement} */ (document.getElementById('status'));
-const overlayEl  = /** @type {HTMLElement} */ (document.getElementById('overlay'));
-const itemInfoEl = /** @type {HTMLElement} */ (document.getElementById('item-info'));
+const statusEl    = /** @type {HTMLElement} */ (document.getElementById('status'));
+const overlayEl   = /** @type {HTMLElement} */ (document.getElementById('overlay'));
+const itemInfoEl  = /** @type {HTMLElement} */ (document.getElementById('item-info'));
+const itemTitleEl = /** @type {HTMLElement} */ (document.getElementById('item-title'));
 
-/** Shows the status pill with a plain-text message; hides the item link. */
+/** Shows the status pill with a plain-text message; hides item cards. */
 function setStatus(msg) {
-  itemInfoEl.style.display = 'none';
-  overlayEl.style.display  = 'flex';
+  itemTitleEl.style.display = 'none';
+  itemInfoEl.style.display  = 'none';
+  overlayEl.style.display   = 'flex';
   statusEl.textContent = msg;
 }
 
-/** Replaces the status pill with the permanent item-info link card. */
+/** Shows the title card (top) and learn-more link (bottom); hides status pill. */
 function showItemLink() {
-  overlayEl.style.display  = 'none';
-  itemInfoEl.style.display = 'flex';
+  overlayEl.style.display   = 'none';
+  itemTitleEl.style.display = 'flex';
+  itemInfoEl.style.display  = 'flex';
 }
 
 /**
@@ -82,8 +85,9 @@ function showItemLink() {
  * @param {'motion'|'camera'} type
  */
 function showFallback(type) {
-  overlayEl.style.display  = 'none';
-  itemInfoEl.style.display = 'none';
+  overlayEl.style.display   = 'none';
+  itemTitleEl.style.display = 'none';
+  itemInfoEl.style.display  = 'none';
   document.getElementById('camerafeed').style.display = 'none';
   const id = type === 'camera' ? 'fallback-camera' : 'fallback-motion';
   const el = document.getElementById(id);
@@ -214,11 +218,8 @@ function buildPipelineModule() {
     camera   = xrScene.camera;
     renderer = xrScene.renderer;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 1.0));
-
-    const sun = new THREE.DirectionalLight(0xffffff, 0.6);
-    sun.position.set(1, 2, 1);
-    scene.add(sun);
+    // No lights added — MeshBasicMaterial ignores lighting entirely,
+    // so AmbientLight / DirectionalLight would be dead scene-graph nodes.
 
     setStatus('Move camera slowly over a flat surface…');
   }
@@ -328,7 +329,7 @@ function buildPipelineModule() {
       readyTimer = setTimeout(() => {
         if (!readyToPlace) {
           readyToPlace = true;
-          setStatus('Tap anywhere to place.');
+          setStatus('Tap a flat surface to place item.');
         }
       }, 2500);
 
@@ -369,7 +370,7 @@ function buildPipelineModule() {
       if (slam?.trackingStatus === 'LIMITED' || slam?.trackingStatus === 'NORMAL') {
         readyToPlace = true;
         clearTimeout(readyTimer);
-        setStatus('Tap anywhere to place.');
+        setStatus('Tap a flat surface to place item.');
       }
     },
 

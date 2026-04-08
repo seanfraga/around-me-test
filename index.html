@@ -78,9 +78,43 @@
     }
 
     /*
-      Item-info link card — replaces the status pill once the document is
-      placed and the texture is loaded. pointer-events: auto so the link
-      is tappable; touches outside this element still reach the canvas.
+      Item-title card — top of screen, shown after placement + texture load.
+      Contains only the item title; not tappable (pointer-events: none).
+      Mirrors the bottom card's distance from edge.
+    */
+    #item-title {
+      display: none;
+      position: fixed;
+      top: max(env(safe-area-inset-top, 0px), 16px);
+      left: 0;
+      right: 0;
+      padding: 16px 24px 0;
+      justify-content: center;
+      align-items: flex-start;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #item-title span {
+      display: block;
+      background: rgba(0, 0, 0, 0.55);
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      line-height: 1.5;
+      padding: 12px 20px;
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      text-align: center;
+      word-wrap: break-word;
+    }
+
+    /*
+      Item-info link pill — bottom of screen, shown after placement + texture
+      load. Contains "Learn more…" as a tappable link. Styled as a pill to
+      match the status pill; pointer-events: auto so it is tappable.
     */
     #item-info {
       display: none;
@@ -95,20 +129,19 @@
     }
 
     #item-info a {
-      display: block;
+      display: inline-block;
       background: rgba(0, 0, 0, 0.55);
       color: #ffffff;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
       font-size: 15px;
       font-weight: 500;
-      line-height: 1.5;
-      padding: 12px 20px;
-      border-radius: 16px;
+      line-height: 1.4;
+      padding: 10px 20px;
+      border-radius: 24px;
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
       text-align: center;
       text-decoration: none;
-      word-wrap: break-word;
     }
 
     #item-info a:active {
@@ -170,24 +203,29 @@
   <canvas id="camerafeed"></canvas>
 
   <!-- Version badge — upper-right; increment by +0.1 per merged PR -->
-  <div id="version">v1.1</div>
+  <div id="version">v1.2</div>
 
   <!-- User-facing status messages (texture loading, surface prompts, errors) -->
   <div id="overlay">
-    <span id="status">Initialising AR…</span>
+    <span id="status">Starting up…</span>
   </div>
 
   <!--
-    Item-info link card — hidden until the document is placed and the
-    texture has loaded. Replaces the status pill; pointer-events: auto
-    so the link is tappable while canvas touches still work below.
+    Item-title card — top of screen. Hidden until placement + texture load.
+    Shows the full item title. Not tappable (pointer-events: none in CSS).
+  -->
+  <div id="item-title">
+    <span>&#x201C;Colton&#x2019;s illustrated &amp; embellished steel plate map of the world on Mercator&#x2019;s projection&#x201D; (1854).</span>
+  </div>
+
+  <!--
+    Item-info link pill — bottom of screen. Hidden until placement + texture
+    load. Tappable link to the LOC item page.
   -->
   <div id="item-info">
     <a href="https://www.loc.gov/item/2009579466/"
        target="_blank"
-       rel="noopener noreferrer">
-      &#x201C;Colton&#x2019;s illustrated &amp; embellished steel plate map of the world on Mercator&#x2019;s projection&#x201D; (1854).<br>Learn more about this item on loc.gov. &#x2197;
-    </a>
+       rel="noopener noreferrer">Learn more about this item on loc.gov. &#x2197;</a>
   </div>
 
   <!-- Desktop fallback — shown when no touch input is detected -->
@@ -243,7 +281,7 @@
     Loaded synchronously so its window.addEventListener('xrloaded', …)
     is registered before the async 8th Wall scripts can fire the event.
   -->
-  <script src="concept.js?v=1.1"></script>
+  <script src="concept.js?v=1.2"></script>
 
 </body>
 </html>

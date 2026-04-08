@@ -1,5 +1,5 @@
 /**
- * poc.js — America Around Me, Proof of Concept
+ * concept.js — America Around Me, Proof of Concept
  *
  * Goals:
  *   1. Validate that 8th Wall initialises and gains camera access.
@@ -37,19 +37,19 @@
  * A 200 response with JSON = valid. A 404 = wrong identifier (the server
  * also omits CORS headers on 404s, so Safari mis-reports it as a CORS error).
  *
- * Change POC_ITEM to swap in any other LOC IIIF image for testing.
+ * Change CONCEPT_ITEM to swap in any other LOC IIIF image for testing.
  */
-const POC_ITEM = {
+const CONCEPT_ITEM = {
   label: "Colton's World Map (1854)",
 
-  // IIIF Image API URL, size-capped at 1024 on the longest dimension.
+  // IIIF Image API URL, size-capped at 4096 on the longest dimension.
   // Identifier taken verbatim from the manifest canvas @id:
   //   service:gmd = Geography & Map Division service
   //   gmd3        = sub-collection folder
   //   g3200/g3200 = world-maps folder hierarchy
   //   ct002354    = item file ID
   imageUrl:
-    'https://tile.loc.gov/image-services/iiif/service:gmd:gmd3:g3200:g3200:ct002354/full/!2048,2048/0/default.jpg',
+    'https://tile.loc.gov/image-services/iiif/service:gmd:gmd3:g3200:g3200:ct002354/full/!4096,4096/0/default.jpg',
 
   // Physical dimensions from LOC MODS record: "1 map : hand col. ; 118 x 176 cm"
   // Library convention is height × width, so width = 1.76 m, height = 1.18 m.
@@ -58,12 +58,22 @@ const POC_ITEM = {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Convenience: typed reference to the status <span>
+// UI HELPERS
 // ─────────────────────────────────────────────────────────────────────
-const statusEl = /** @type {HTMLElement} */ (document.getElementById('status'));
+const statusEl  = /** @type {HTMLElement} */ (document.getElementById('status'));
+const overlayEl = /** @type {HTMLElement} */ (document.getElementById('overlay'));
+const itemInfoEl = /** @type {HTMLElement} */ (document.getElementById('item-info'));
 
 function setStatus(msg) {
+  itemInfoEl.style.display = 'none';
+  overlayEl.style.display  = 'flex';
   statusEl.textContent = msg;
+}
+
+/** Hides the status pill and shows the permanent item-info link card. */
+function showItemLink() {
+  overlayEl.style.display  = 'none';
+  itemInfoEl.style.display = 'flex';
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -108,7 +118,7 @@ async function loadTexture(url) {
 // ─────────────────────────────────────────────────────────────────────
 // PHYSICAL DIMENSIONS HELPER
 // Returns the THREE.PlaneGeometry arguments for a document, in metres.
-// The POC uses a single hardcoded item; in the full app this will be
+// This proof of concept uses a single hardcoded item; in the full app this will be
 // driven by a document-type lookup table keyed on IIIF manifest data.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -164,21 +174,20 @@ function buildPipelineModule() {
     scene.add(sun);
 
     // Fetch the LOC texture in the background while the user scans for a
-    // surface. Stage A/B staging will be added in the full app; for the
-    // POC we just start loading immediately.
-    loadTexture(POC_ITEM.imageUrl)
+    // surface. Stage A/B loading will be added in the full app; for the
+    // proof of concept we start loading immediately.
+    loadTexture(CONCEPT_ITEM.imageUrl)
       .then((tex) => {
         textureReady = tex;
         // If the user already placed the mesh, apply the texture now.
         if (documentMesh && !textureApplied) {
           applyTexture(documentMesh, textureReady);
-          const sizeLabel = `${(POC_ITEM.widthM * 100).toFixed(0)} × ${(POC_ITEM.heightM * 100).toFixed(0)} cm`;
-          setStatus(`${POC_ITEM.label} — ${sizeLabel}`);
+          showItemLink();
         }
         // Otherwise it will be applied on the next successful tap.
       })
       .catch((err) => {
-        console.error('[poc] texture load error', err);
+        console.error('[concept] texture load error', err);
         setStatus('Image failed to load — check console.');
       });
 
@@ -188,7 +197,7 @@ function buildPipelineModule() {
   // ── Mesh creation ──────────────────────────────────────────────────
 
   function createDocumentMesh() {
-    const { w, h } = physicalSize(POC_ITEM);
+    const { w, h } = physicalSize(CONCEPT_ITEM);
     const geo = new THREE.PlaneGeometry(w, h);
 
     // Warm off-white placeholder while the texture is in flight.
@@ -278,10 +287,10 @@ function buildPipelineModule() {
       applyTexture(documentMesh, textureReady);
     }
 
-    const sizeLabel = `${(POC_ITEM.widthM * 100).toFixed(0)} × ${(POC_ITEM.heightM * 100).toFixed(0)} cm`;
     if (textureApplied) {
-      setStatus(`${POC_ITEM.label} — ${sizeLabel}`);
+      showItemLink();
     } else {
+      const sizeLabel = `${(CONCEPT_ITEM.widthM * 100).toFixed(0)} × ${(CONCEPT_ITEM.heightM * 100).toFixed(0)} cm`;
       setStatus(`Placed (${sizeLabel}) — image loading…`);
     }
   }
@@ -289,7 +298,7 @@ function buildPipelineModule() {
   // ── Module API ─────────────────────────────────────────────────────
 
   return {
-    name: 'AmericaAroundMePOC',
+    name: 'AmericaAroundMeConcept',
 
     onStart({ canvas }) {
       initScene();
@@ -346,8 +355,15 @@ function buildPipelineModule() {
     },
 
     onException(error) {
-      console.error('[8th Wall] pipeline exception', error);
-      setStatus('AR error — see console. Try reloading.');
+      console.error('[concept] pipeline exception', error);
+      const msg = error && (error.message || String(error));
+      if (msg && /permission|denied|notallowed/i.test(msg)) {
+        document.getElementById('fallback-camera').style.display = 'flex';
+        document.getElementById('camerafeed').style.display = 'none';
+        document.getElementById('overlay').style.display = 'none';
+      } else {
+        setStatus('AR error — see console. Try reloading.');
+      }
     },
   };
 }

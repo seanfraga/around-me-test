@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <title>America Around Me — POC</title>
+  <title>America Around Me: Proof of Concept</title>
 
   <style>
     *, *::before, *::after {
@@ -78,6 +78,44 @@
     }
 
     /*
+      Item-info link card — replaces the status pill once the document is
+      placed and the texture is loaded. pointer-events: auto so the link
+      is tappable; touches outside this element still reach the canvas.
+    */
+    #item-info {
+      display: none;
+      position: fixed;
+      bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+      left: 0;
+      right: 0;
+      padding: 0 24px 16px;
+      justify-content: center;
+      align-items: flex-end;
+      z-index: 10;
+    }
+
+    #item-info a {
+      display: block;
+      background: rgba(0, 0, 0, 0.55);
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      line-height: 1.5;
+      padding: 12px 20px;
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      text-align: center;
+      text-decoration: none;
+      word-wrap: break-word;
+    }
+
+    #item-info a:active {
+      background: rgba(0, 0, 0, 0.75);
+    }
+
+    /*
       Version badge — upper-right corner.
       Increment by +0.1 with each merged PR so it's visible on device
       without opening DevTools, confirming GitHub Pages has deployed.
@@ -94,6 +132,26 @@
       pointer-events: none;
       z-index: 10;
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    }
+
+    /*
+      Fallback screens — shown instead of the AR experience when the
+      device or permissions don't support it. Full-screen, black background.
+    */
+    .fallback {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      font-size: 18px;
+      line-height: 1.6;
+      text-align: center;
+      padding: 48px 32px;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
     }
   </style>
 
@@ -112,12 +170,52 @@
   <canvas id="camerafeed"></canvas>
 
   <!-- Version badge — upper-right; increment by +0.1 per merged PR -->
-  <div id="version">v0.9</div>
+  <div id="version">v1.0</div>
 
   <!-- User-facing status messages (texture loading, surface prompts, errors) -->
   <div id="overlay">
     <span id="status">Initialising AR…</span>
   </div>
+
+  <!--
+    Item-info link card — hidden until the document is placed and the
+    texture has loaded. Replaces the status pill; pointer-events: auto
+    so the link is tappable while canvas touches still work below.
+  -->
+  <div id="item-info">
+    <a href="https://www.loc.gov/item/2009579466/"
+       target="_blank"
+       rel="noopener noreferrer">
+      &#x201C;Colton&#x2019;s illustrated &amp; embellished steel plate map of the world on Mercator&#x2019;s projection&#x201D; (1854). Learn more about this item on loc.gov.
+    </a>
+  </div>
+
+  <!-- Desktop fallback — shown when no touch input is detected -->
+  <div id="fallback-desktop" class="fallback">
+    <p>Open this page on a mobile device to access the America Around Me proof of concept.</p>
+  </div>
+
+  <!-- Camera fallback — shown when camera permission is denied -->
+  <div id="fallback-camera" class="fallback">
+    <p>Please grant camera access to use the America Around Me proof of concept.</p>
+  </div>
+
+  <!--
+    Mobile detection — runs synchronously before 8th Wall loads.
+    Shows the desktop fallback and hides AR chrome if no touch input.
+    navigator.maxTouchPoints is 0 on desktops without a touch screen.
+  -->
+  <script>
+    (function () {
+      const isMobile = navigator.maxTouchPoints > 0 || /Mobi|Android/i.test(navigator.userAgent);
+      if (!isMobile) {
+        document.getElementById('fallback-desktop').style.display = 'flex';
+        document.getElementById('camerafeed').style.display = 'none';
+        document.getElementById('overlay').style.display = 'none';
+        document.getElementById('version').style.display = 'none';
+      }
+    }());
+  </script>
 
   <!--
     8TH WALL OPEN-SOURCE ENGINE
@@ -130,17 +228,17 @@
     first-surface detection on cold loads.
 
     The script is async; our AR code runs inside the 'xrloaded' event
-    callback in poc.js, which fires once the engine is ready.
+    callback in concept.js, which fires once the engine is ready.
   -->
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
           async crossorigin="anonymous" data-preload-chunks="slam"></script>
 
   <!--
-    poc.js — our AR logic.
+    concept.js — our AR logic.
     Loaded synchronously so its window.addEventListener('xrloaded', …)
     is registered before the async 8th Wall scripts can fire the event.
   -->
-  <script src="poc.js?v=0.9"></script>
+  <script src="concept.js?v=1.0"></script>
 
 </body>
 </html>

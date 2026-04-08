@@ -60,66 +60,115 @@ const CONCEPT_ITEM = {
 // ─────────────────────────────────────────────────────────────────────
 // UI HELPERS
 // ─────────────────────────────────────────────────────────────────────
-const statusEl  = /** @type {HTMLElement} */ (document.getElementById('status'));
-const overlayEl = /** @type {HTMLElement} */ (document.getElementById('overlay'));
+const statusEl   = /** @type {HTMLElement} */ (document.getElementById('status'));
+const overlayEl  = /** @type {HTMLElement} */ (document.getElementById('overlay'));
 const itemInfoEl = /** @type {HTMLElement} */ (document.getElementById('item-info'));
 
+/** Shows the status pill with a plain-text message; hides the item link. */
 function setStatus(msg) {
   itemInfoEl.style.display = 'none';
   overlayEl.style.display  = 'flex';
   statusEl.textContent = msg;
 }
 
-/** Hides the status pill and shows the permanent item-info link card. */
+/** Replaces the status pill with the permanent item-info link card. */
 function showItemLink() {
   overlayEl.style.display  = 'none';
   itemInfoEl.style.display = 'flex';
 }
 
+/**
+ * Hides AR chrome and shows a full-screen fallback message.
+ * @param {'motion'|'camera'} type
+ */
+function showFallback(type) {
+  overlayEl.style.display  = 'none';
+  itemInfoEl.style.display = 'none';
+  document.getElementById('camerafeed').style.display = 'none';
+  const id = type === 'camera' ? 'fallback-camera' : 'fallback-motion';
+  const el = document.getElementById(id);
+  if (el) el.style.display = 'flex';
+}
+
 // ─────────────────────────────────────────────────────────────────────
-// TEXTURE LOADING
-// Technique: fetch → blob → createImageBitmap → THREE.Texture
+// MODULE-LEVEL DOCUMENT STATE
 //
-// Why not THREE.TextureLoader?
-//   TextureLoader creates an <img> element internally. On iOS Safari the
-//   image is decoded on the main thread, which can stall the AR render
-//   loop and cause SLAM tracking to drop frames. createImageBitmap
-//   decodes off the main thread and returns a GPU-uploadable bitmap,
-//   so the first render frame that actually uses the texture is smooth.
+// textureReady, textureApplied, and documentMesh are lifted to module
+// scope so the texture preload (below) can set textureReady and
+// immediately apply it to an already-placed mesh, without waiting for
+// the next user tap.
 // ─────────────────────────────────────────────────────────────────────
+let textureReady      = null;   // resolved THREE.Texture; null until loaded
+let textureApplied    = false;  // true after first material swap on the mesh
+let textureLoadFailed = false;  // true if the preload fetch or decode failed
+let documentMesh      = null;   // Three.js mesh; null until first tap
 
 /**
- * Loads a texture using the fetch → blob → createImageBitmap pipeline.
- *
- * @param {string} url
- * @returns {Promise<THREE.Texture>}
+ * Swaps the placeholder material for the real texture.
+ * Guard prevents redundant swaps if called more than once.
  */
-async function loadTexture(url) {
-  setStatus('Fetching image…');
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Image fetch failed: ${response.status} ${response.statusText}`);
-  }
-
-  const blob = await response.blob();
-  setStatus('Decoding image…');
-
-  // createImageBitmap decodes on a worker thread (iOS 15+, all modern Android).
-  const bitmap = await createImageBitmap(blob);
-
-  const texture = new THREE.Texture(bitmap);
-  texture.needsUpdate = true;          // upload to GPU on next render
-  texture.colorSpace = THREE.SRGBColorSpace;  // match Three.js r152 defaults
-
-  return texture;
+function applyTexture(mesh, texture) {
+  if (textureApplied) return;
+  textureApplied = true;
+  mesh.material.dispose();
+  mesh.material = new THREE.MeshBasicMaterial({
+    map: texture,
+    side: THREE.DoubleSide,
+    transparent: false,
+  });
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// TEXTURE PRELOAD
+//
+// Fetches the LOC image as soon as this script executes — before 8th
+// Wall initialises, before the user scans a surface, before the first
+// tap. The typical time from script load to first tap is 5–10 seconds,
+// which is enough to fetch, decode, and upload the texture. The user
+// should never see the blank off-white placeholder.
+//
+// Technique: fetch → blob → createImageBitmap → THREE.Texture
+// Why not THREE.TextureLoader?
+//   TextureLoader creates an <img> internally. On iOS Safari, image
+//   decoding is synchronous on the main thread and can stall the AR
+//   render loop. createImageBitmap decodes on a worker thread (iOS 15+,
+//   all modern Android), keeping the frame rate smooth.
+//
+// Silent: no status messages during preload — the user sees normal
+// AR prompts ("Move camera…", "Tap to place") while the image loads
+// in the background.
+// ─────────────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const response = await fetch(CONCEPT_ITEM.imageUrl);
+    if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+    const tex = new THREE.Texture(bitmap);
+    tex.needsUpdate = true;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureReady = tex;
+    // Edge case: user placed the mesh before the fetch finished.
+    // Apply the texture immediately rather than waiting for the next tap.
+    if (documentMesh && !textureApplied) {
+      applyTexture(documentMesh, tex);
+      showItemLink();
+    }
+  } catch (err) {
+    console.error('[concept] texture preload failed', err);
+    textureLoadFailed = true;
+    if (documentMesh) {
+      setStatus('Image failed to load — check console.');
+    }
+  }
+})();
 
 // ─────────────────────────────────────────────────────────────────────
 // PHYSICAL DIMENSIONS HELPER
 // Returns the THREE.PlaneGeometry arguments for a document, in metres.
-// This proof of concept uses a single hardcoded item; in the full app this will be
-// driven by a document-type lookup table keyed on IIIF manifest data.
+// This proof of concept uses a single hardcoded item; in the full app
+// this will be driven by a document-type lookup table keyed on IIIF
+// manifest data.
 // ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -151,11 +200,9 @@ function physicalSize(item) {
 function buildPipelineModule() {
   // ── State ──────────────────────────────────────────────────────────
   let scene, camera, renderer;
-  let documentMesh  = null;   // Three.js mesh; null until first successful hit
-  let textureReady  = null;   // resolved THREE.Texture; null until loaded
-  let textureApplied = false; // prevents redundant material swaps on reposition
   let readyToPlace  = false;  // true once SLAM has had time to initialise
   let readyTimer    = null;   // handle for the time-based fallback
+  let arSessionLive = false;  // true once onStart fires successfully
 
   // ── Scene setup ────────────────────────────────────────────────────
 
@@ -173,24 +220,6 @@ function buildPipelineModule() {
     sun.position.set(1, 2, 1);
     scene.add(sun);
 
-    // Fetch the LOC texture in the background while the user scans for a
-    // surface. Stage A/B loading will be added in the full app; for the
-    // proof of concept we start loading immediately.
-    loadTexture(CONCEPT_ITEM.imageUrl)
-      .then((tex) => {
-        textureReady = tex;
-        // If the user already placed the mesh, apply the texture now.
-        if (documentMesh && !textureApplied) {
-          applyTexture(documentMesh, textureReady);
-          showItemLink();
-        }
-        // Otherwise it will be applied on the next successful tap.
-      })
-      .catch((err) => {
-        console.error('[concept] texture load error', err);
-        setStatus('Image failed to load — check console.');
-      });
-
     setStatus('Move camera slowly over a flat surface…');
   }
 
@@ -201,6 +230,7 @@ function buildPipelineModule() {
     const geo = new THREE.PlaneGeometry(w, h);
 
     // Warm off-white placeholder while the texture is in flight.
+    // With preloading, this should rarely be visible.
     const mat = new THREE.MeshBasicMaterial({
       color: 0xfff8e7,
       side: THREE.DoubleSide,
@@ -208,23 +238,7 @@ function buildPipelineModule() {
       opacity: 0.7,
     });
 
-    // No rotation set here — placeOrMoveDocument sets the full rotation
-    // dynamically so the bottom edge always faces the camera.
     return new THREE.Mesh(geo, mat);
-  }
-
-  function applyTexture(mesh, texture) {
-    // Guard: only swap the material once. Subsequent repositions just move
-    // the mesh; they don't need to rebuild the material.
-    if (textureApplied) return;
-    textureApplied = true;
-
-    mesh.material.dispose();
-    mesh.material = new THREE.MeshBasicMaterial({
-      map: texture,
-      side: THREE.DoubleSide,
-      transparent: false,
-    });
   }
 
   // ── Placement / repositioning ───────────────────────────────────────
@@ -246,52 +260,56 @@ function buildPipelineModule() {
 
     // ── Orientation ────────────────────────────────────────────────────
     // Goal: the document lies flat on the detected surface with:
-    //   • image top edge facing away from the viewer (right-side-up)
-    //   • image right side on the viewer's right    (no mirror)
+    //   • image bottom edge nearest the viewer (right-side-up)
+    //   • image right side on the viewer's right (no mirror)
     //
     // APPROACH: Euler 'YXZ' order — rotation.set(+π/2, θ, 0, 'YXZ')
     //
     // 'YXZ' Euler order produces matrix M = Ry(θ) · Rx(+π/2).
     //
-    //   Rx(+π/2) — PlaneGeometry lies in XY; Rx(+π/2) rotates local:
-    //              +Y → +Z,  +Z → −Y
-    //              Normal (was +Z) → −Y (pointing down) = flat on floor. ✓
+    //   Rx(+π/2) — PlaneGeometry lies in XY. After Rx(+π/2):
+    //              local +Y → world +Z, normal → world −Y (pointing down).
+    //              The plane is flat on the floor regardless of θ. ✓
     //
-    //   Ry(θ)    — spins the already-flat plane around world Y (vertical),
-    //              which is axis-aligned and never causes tilt. The image top
-    //              (local +Y, now world +Z after Rx) → (sinθ, 0, cosθ).
+    //   Ry(θ)    — spins the flat plane around world Y.
+    //              Local +Y (image bottom, due to Three.js flipY=true)
+    //              maps to world direction (sinθ, 0, cosθ).
     //
     // HOW θ IS COMPUTED
-    // We want the image top, (sinθ, 0, cosθ), to equal the camera-forward
-    // direction projected onto XZ, (fwdX, 0, fwdZ):
-    //   sinθ = fwdX,  cosθ = fwdZ  →  θ = atan2(fwdX, fwdZ).
-    // Image right (local +X) → (cosθ, 0, −sinθ), which matches camera
-    // right, so there is no mirror flip.
+    // We want image bottom facing toward the viewer, i.e. in the direction
+    // OPPOSITE to camera forward:
+    //   sinθ = −fwdX, cosθ = −fwdZ  →  θ = atan2(−fwdX, −fwdZ)
     //
-    // WHY CAMERA FORWARD, NOT (camera.position - mesh.position):
-    // When tapping the floor, the camera is nearly directly above the
-    // hit point, so dx ≈ 0, dz ≈ 0 — atan2(0,0) is undefined and the
-    // result is arbitrary. Camera forward is stable regardless of hit point.
+    // WHY CAMERA FORWARD, NOT (camera.position − mesh.position):
+    // When tapping the floor, dx ≈ 0 and dz ≈ 0 — atan2(0,0) is
+    // undefined. Camera forward is stable regardless of tap location.
     //
     // Three.js Matrix4 is column-major; column 2 = elements[8..10].
     // Camera looks along local −Z, so world forward = −column2.
     const fwdX = -camera.matrixWorld.elements[8];
     const fwdZ = -camera.matrixWorld.elements[10];
-    // Normalise after XZ projection (fwdY is discarded).
+    // Normalise after XZ projection (fwdY discarded).
     const fwdLen = Math.sqrt(fwdX * fwdX + fwdZ * fwdZ) || 1;
     const nfwdX = fwdX / fwdLen;
     const nfwdZ = fwdZ / fwdLen;
     documentMesh.rotation.set(Math.PI / 2, Math.atan2(-nfwdX, -nfwdZ), 0, 'YXZ');
 
-    if (textureReady && !textureApplied) {
-      applyTexture(documentMesh, textureReady);
-    }
-
-    if (textureApplied) {
-      showItemLink();
+    // ── Texture / status ───────────────────────────────────────────────
+    if (!textureApplied) {
+      if (textureReady) {
+        // Preload finished before first tap — apply immediately, no flash.
+        applyTexture(documentMesh, textureReady);
+        showItemLink();
+      } else if (textureLoadFailed) {
+        setStatus('Image failed to load — check console.');
+      } else {
+        // Still loading — show message; preload IIFE will apply when done.
+        const sizeLabel = `${(CONCEPT_ITEM.widthM * 100).toFixed(0)} × ${(CONCEPT_ITEM.heightM * 100).toFixed(0)} cm`;
+        setStatus(`Placed (${sizeLabel}) — image loading…`);
+      }
     } else {
-      const sizeLabel = `${(CONCEPT_ITEM.widthM * 100).toFixed(0)} × ${(CONCEPT_ITEM.heightM * 100).toFixed(0)} cm`;
-      setStatus(`Placed (${sizeLabel}) — image loading…`);
+      // Repositioning after texture already applied.
+      showItemLink();
     }
   }
 
@@ -301,6 +319,7 @@ function buildPipelineModule() {
     name: 'AmericaAroundMeConcept',
 
     onStart({ canvas }) {
+      arSessionLive = true;
       initScene();
 
       // Time-based fallback: if onUpdate hasn't seen any SLAM signal after
@@ -356,11 +375,17 @@ function buildPipelineModule() {
 
     onException(error) {
       console.error('[concept] pipeline exception', error);
-      const msg = error && (error.message || String(error));
-      if (msg && /permission|denied|notallowed/i.test(msg)) {
-        document.getElementById('fallback-camera').style.display = 'flex';
-        document.getElementById('camerafeed').style.display = 'none';
-        document.getElementById('overlay').style.display = 'none';
+      if (!arSessionLive) {
+        // Exception before the AR session started — almost certainly a
+        // permission denial (motion sensors or camera). Show the
+        // appropriate fallback based on what the error message mentions.
+        const msg = String(error?.message || error || '');
+        if (/camera|video|capture/i.test(msg)) {
+          showFallback('camera');
+        } else {
+          // Motion sensor denial, or any other pre-session error.
+          showFallback('motion');
+        }
       } else {
         setStatus('AR error — see console. Try reloading.');
       }
@@ -380,6 +405,25 @@ window.addEventListener('xrloaded', () => {
   // No XrExtras wrapper needed — we drive loading state ourselves.
 
   const canvas = document.getElementById('camerafeed');
+
+  // ── Camera permission intercept ─────────────────────────────────────
+  // When the user taps Cancel on the iOS "Would Like to Access the Camera"
+  // prompt, the browser rejects getUserMedia with NotAllowedError.
+  // 8th Wall may silently swallow this error (leaving the page frozen at
+  // "Initialising AR…"), so we intercept it here and show the fallback.
+  if (navigator.mediaDevices?.getUserMedia) {
+    const origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async function (...args) {
+      try {
+        return await origGUM(...args);
+      } catch (err) {
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          showFallback('camera');
+        }
+        throw err;
+      }
+    };
+  }
 
   // ── Canvas pixel dimensions ─────────────────────────────────────────
   // The old XrExtras.FullWindowCanvas pipeline module handled this. Now

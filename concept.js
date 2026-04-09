@@ -405,6 +405,13 @@ window.addEventListener('xrloaded', () => {
   // The open-source engine fires 'xrloaded' when XR8 is ready.
   // No XrExtras wrapper needed — we drive loading state ourselves.
 
+  // If the desktop fallback is already visible (set by the inline mobile-
+  // detection script), do not start the AR session. Without this guard,
+  // XR8.run() throws immediately on desktop, onException fires, and the
+  // motion-sensor fallback overwrites the desktop fallback message.
+  const isMobile = navigator.maxTouchPoints > 0 || /Mobi|Android/i.test(navigator.userAgent);
+  if (!isMobile) return;
+
   const canvas = document.getElementById('camerafeed');
 
   // ── Camera permission intercept ─────────────────────────────────────
